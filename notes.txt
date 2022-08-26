@@ -1,3 +1,6 @@
+08/25/2022:
+Users have the option to hide the number of likes on a post. For these posts, Instaloader returns -1 as the number of likes
+
 08/17/2022:
 Downloading images from Instagram means making a bunch of additional requests, which increases the probability of getting blocked.
 If we want to have undergrads classify posts as sponsored or not, we can just give them the post links. We don't have to download the images.
