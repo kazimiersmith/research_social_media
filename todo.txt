@@ -1,2 +1,0 @@
-08/25/2022:
-What to do about pinned posts? Probably just skip them, i.e., filter them out when getting posts from the iterator.
