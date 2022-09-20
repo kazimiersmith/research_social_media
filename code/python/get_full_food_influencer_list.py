@@ -17,9 +17,17 @@
 from bs4 import BeautifulSoup
 import pandas as pd
 import itertools
+from pathlib import Path
 
 # %%
-with open('food_influencers_webpage.html', encoding = 'utf-8') as fp:
+root = Path('C:/Users/kas1112/Documents/research_social_media')
+data = root / 'data'
+data_in = data / 'in'
+data_out = data / 'out'
+temp = data / 'temp'
+
+# %%
+with open(data_in / 'food_influencers_webpage.html', encoding = 'utf-8') as fp:
     soup = BeautifulSoup(fp, 'html.parser')
     profiles = soup.find_all(class_ = "trow trow-wrap")
     usernames = [p.a.text.strip()[1:] for p in profiles]
@@ -35,7 +43,8 @@ influencers = pd.DataFrame({'username': usernames, 'num_followers': followers})
 missing = ['kp_ingitsimple']
 rename = {'streetsmartrd': 'streetsmart.rd',
          'carlieeeeats': 'carlie.eats',
-         'memphiswings615': 'originalmemphiswings'}
+         'memphiswings615': 'originalmemphiswings',
+         'marathonnutritionist': 'marathon.nutritionist'}
 
 # %%
 influencers = influencers[~influencers['username'].isin(missing)]
@@ -44,7 +53,7 @@ influencers = influencers[~influencers['username'].isin(missing)]
 influencers['username'] = influencers['username'].replace(to_replace = rename)
 
 # %%
-influencers.to_csv('list_influencers.csv', encoding = 'utf-8', index = False)
+influencers.to_csv(data_in / 'list_influencers.csv', encoding = 'utf-8', index = False)
 
 # %%
 len(influencers)
