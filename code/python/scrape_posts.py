@@ -21,17 +21,39 @@ import unicodedata
 import numpy as np
 from pathlib import Path
 import os
-import datetime
 import warnings
 import itertools
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # %%
 root = Path('C:/Users/kas1112/Documents/research_social_media')
 data = root / 'data'
 data_in = data / 'in'
 data_out = data / 'out'
-today = datetime.now().strftime('%Y%m%d')
+temp = data / 'temp'
+
+# %%
+today = datetime.now()
+today_str = today.strftime('%Y%m%d')
+week = timedelta(days = 7)
+
+# The date and time at which I stopped scraping last time. I want to start scraping there so I don't miss anything.
+# This is just to account for the possibility that I don't run the code at exactly the same time each week
+try:
+    with open(temp / 'scrape_stop.txt', 'r') as f:
+        prev_stop = datetime.fromisoformat(f.readline())
+except FileNotFoundError:
+    print('No previous scrape stop date found')
+    prev_stop = today - 2 * week
+    
+current_stop = today - week
+with open(temp / 'scrape_stop.txt', 'w') as f:
+    f.write(current_stop.isoformat())
+    
+# Save the dates I'm scraping, just to make sure things are working
+with open(data_out / 'txt' / (today_str + '.txt'), 'w') as f:
+    outstr = 'File ' + today_str + '.csv contains posts from ' + prev_stop.isoformat() + ' to ' + current_stop.isoformat()
+    f.write(outstr)
 
 # %%
 with open(data_in / 'instagram_mobile_user_agent.txt', 'r') as f:
@@ -54,12 +76,19 @@ influencer_list_full = pd.read_csv(data_in / 'list_influencers.csv', encoding = 
 # %%
 # For the initial regression of engagement on sponsorship, use influencers with
 # 50,000 to 200,000 followers
-influencer_list = influencer_list_full[(influencer_list_full['num_followers'] > 50000) 
-                                       & (influencer_list_full['num_followers'] < 200000)]['username']
-#influencer_list = influencer_list_full['username']
+#influencer_list = influencer_list_full[(influencer_list_full['num_followers'] > 50000) 
+#                                       & (influencer_list_full['num_followers'] < 200000)]['username']
+influencer_list = influencer_list_full['username']
 
 # %%
-def user_to_json(influencer, num_posts, replace_json = True):
+prev_stop
+
+
+# %%
+# Influencer is the user's Instagram username
+# from_date is the date at which to start scraping
+# to_date is the date at which to stop scraping
+def user_to_json(influencer, from_date, to_date):
     print('Downloading posts from', influencer)
     Profile = instaloader.Profile
     profile = Profile.from_username(L.context, influencer)
@@ -68,23 +97,21 @@ def user_to_json(influencer, num_posts, replace_json = True):
     # it returns the most recent posts firsts, but if there are pinned posts, it will return those.
     posts = profile.get_posts()
     
-    # Ignore pinned posts, since they might be from a long time ago
-    # TODO maybe actually check the dates? Probably won't make much difference
-    posts_non_pinned = itertools.filterfalse(lambda p: p.is_pinned, posts)
+    # Posts posted between from_date and to_date
+    posts_date = filter(lambda p: from_date < p.date <= to_date, posts)
     
-    for post in itertools.islice(posts_non_pinned, num_posts):
+    for post in posts_date:
         shortcode = post.shortcode
-        L.save_metadata_json(str(data_out / 'json' / today / shortcode), post) 
+        L.save_metadata_json(str(data_out / 'json' / today_str / shortcode), post) 
 
 
 # %%
 for influencer in influencer_list:
-    user_to_json(influencer, 5)
+    user_to_json(influencer, prev_stop, current_stop)
 
 
 # %%
 # Function to grab objects of interest from post object
-
 def objects_from_post(post):
     # Shortcode
     shortcode = 'https://www.instagram.com/p/' + post.shortcode
@@ -213,7 +240,7 @@ def empty_dict(shortcode):
 
 
 # %%
-json_today = data_out / 'json' / today
+json_today = data_out / 'json' / today_str
 json_files = list(json_today.glob('*.json.xz'))
 count = 0
 list_dicts = []
@@ -234,8 +261,6 @@ df = pd.DataFrame(list_dicts)
 
 # %%
 # Encoding needs to be UTF8-sig, otherwise apostrophes, emojis etc. get messed up
-outfile = today + '.csv'
+outfile = today_str + '.csv'
 outpath = data_out / 'csv' / outfile
 df.to_csv(outpath, encoding = 'utf-8-sig', index = False) 
-
-# %%
