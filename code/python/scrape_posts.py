@@ -37,23 +37,24 @@ today = datetime.now()
 today_str = today.strftime('%Y%m%d')
 week = timedelta(days = 7)
 
+# %%
 # The date and time at which I stopped scraping last time. I want to start scraping there so I don't miss anything.
 # This is just to account for the possibility that I don't run the code at exactly the same time each week
-try:
-    with open(temp / 'scrape_stop.txt', 'r') as f:
-        prev_stop = datetime.fromisoformat(f.readline())
-except FileNotFoundError:
-    print('No previous scrape stop date found')
-    prev_stop = today - 2 * week
+# try:
+#     with open(temp / 'scrape_stop.txt', 'r') as f:
+#         prev_stop = datetime.fromisoformat(f.readline())
+# except FileNotFoundError:
+#     print('No previous scrape stop date found')
+#     prev_stop = today - 2 * week
     
-current_stop = today - week
-with open(temp / 'scrape_stop.txt', 'w') as f:
-    f.write(current_stop.isoformat())
+# current_stop = today - week
+# with open(temp / 'scrape_stop.txt', 'w') as f:
+#     f.write(current_stop.isoformat())
     
-# Save the dates I'm scraping, just to make sure things are working
-with open(data_out / 'txt' / (today_str + '.txt'), 'w') as f:
-    outstr = 'File ' + today_str + '.csv contains posts from ' + prev_stop.isoformat() + ' to ' + current_stop.isoformat()
-    f.write(outstr)
+# # Save the dates I'm scraping, just to make sure things are working
+# with open(data_out / 'txt' / (today_str + '.txt'), 'w') as f:
+#     outstr = 'File ' + today_str + '.csv contains posts from ' + prev_stop.isoformat() + ' to ' + current_stop.isoformat()
+#     f.write(outstr)
 
 # %%
 with open(data_in / 'instagram_mobile_user_agent.txt', 'r') as f:
@@ -69,6 +70,8 @@ L = instaloader.Instaloader(user_agent = mobile_user_agent)
 # Don't use an account you care a lot about - it could get banned due to scraping
 L.load_session_from_file('kazimiersmith')
 
+#L.load_session_from_file('lmbc1961')
+
 # %%
 influencer_list_full = pd.read_csv(data_in / 'list_influencers.csv', encoding = 'utf-8')
 #influencer_list_full = pd.read_csv('list_influencers_5.csv', encoding = 'utf-8')
@@ -76,19 +79,17 @@ influencer_list_full = pd.read_csv(data_in / 'list_influencers.csv', encoding = 
 # %%
 # For the initial regression of engagement on sponsorship, use influencers with
 # 50,000 to 200,000 followers
-#influencer_list = influencer_list_full[(influencer_list_full['num_followers'] > 50000) 
-#                                       & (influencer_list_full['num_followers'] < 200000)]['username']
-influencer_list = influencer_list_full['username']
-
-# %%
-prev_stop
-
+influencer_list = influencer_list_full[(influencer_list_full['num_followers'] > 50000) 
+                                       & (influencer_list_full['num_followers'] < 200000)]['username']
+#influencer_list = influencer_list_full['username']
 
 # %%
 # Influencer is the user's Instagram username
 # from_date is the date at which to start scraping
 # to_date is the date at which to stop scraping
-def user_to_json(influencer, from_date, to_date):
+# Of the posts in that range, num_posts is the number to scrape
+# (it will scrape the most recent in the range)
+def user_to_json(influencer, from_date, to_date, num_posts):
     print('Downloading posts from', influencer)
     Profile = instaloader.Profile
     profile = Profile.from_username(L.context, influencer)
@@ -97,17 +98,31 @@ def user_to_json(influencer, from_date, to_date):
     # it returns the most recent posts firsts, but if there are pinned posts, it will return those.
     posts = profile.get_posts()
     
-    # Posts posted between from_date and to_date
-    posts_date = filter(lambda p: from_date < p.date <= to_date, posts)
+    # Scrape posts from between one and two weeks ago
+    if from_date:
+        # Note: scraping posts between two specific dates seems to send a lot more requests to Instagram
+        # and leads to getting rate limited quickly
+        posts_date = filter(lambda p: from_date < p.date <= to_date, posts)
+    else:
+        posts_date = filter(lambda p: p.date <= to_date, posts)
     
-    for post in posts_date:
+    # Ignore pinned posts since they might be from a long time ago
+    posts_not_pinned = filter(lambda p: not p.is_pinned, posts_date)
+   
+    # Scrape the num_posts most recent posts in the specified date range
+    if num_posts > 0:
+        posts_slice = itertools.islice(posts_not_pinned, num_posts)
+    else:
+        posts_slice = posts_not_pinned
+    
+    for post in posts_slice:
         shortcode = post.shortcode
         L.save_metadata_json(str(data_out / 'json' / today_str / shortcode), post) 
 
 
 # %%
 for influencer in influencer_list:
-    user_to_json(influencer, prev_stop, current_stop)
+    user_to_json(influencer, None, today - week, 7)
 
 
 # %%
@@ -240,7 +255,14 @@ def empty_dict(shortcode):
 
 
 # %%
-json_today = data_out / 'json' / today_str
+# TODO randomly select posts so I'm not always
+# missing the last ones (when Instagram shuts me down)
+
+#json_today = data_out / 'json' / today_str
+
+# Move JSON files I wasn't able to scrape to a separate folder
+# and scrape them using Luis's Instagram account
+json_today = data_out / 'json' / today_str / 'luis_account_scrape'
 json_files = list(json_today.glob('*.json.xz'))
 count = 0
 list_dicts = []
@@ -250,6 +272,7 @@ for file in json_files:
     print(file)
 
     post = instaloader.load_structure_from_file(L.context, str(file))
+    
     # To handle a postexception error
     try:
         list_dicts.append(objects_from_post(post))
@@ -257,6 +280,10 @@ for file in json_files:
         print('Error getting post information:', e)
         list_dicts.append(empty_dict(post.shortcode))
 
+# %%
+len(list_dicts)
+
+# %%
 df = pd.DataFrame(list_dicts)
 
 # %%
@@ -264,3 +291,5 @@ df = pd.DataFrame(list_dicts)
 outfile = today_str + '.csv'
 outpath = data_out / 'csv' / outfile
 df.to_csv(outpath, encoding = 'utf-8-sig', index = False) 
+
+# %%
