@@ -44,7 +44,8 @@ missing = ['kp_ingitsimple']
 rename = {'streetsmartrd': 'streetsmart.rd',
          'carlieeeeats': 'carlie.eats',
          'memphiswings615': 'originalmemphiswings',
-         'marathonnutritionist': 'marathon.nutritionist'}
+         'marathonnutritionist': 'marathon.nutritionist',
+         'cleanfooddirtycity': 'lilydoran'}
 
 # %%
 influencers = influencers[~influencers['username'].isin(missing)]
