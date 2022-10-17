@@ -19,6 +19,7 @@ from pathlib import Path
 from ast import literal_eval
 from datetime import datetime
 import re
+import numpy as np
 
 # %%
 pd.options.display.max_rows = 1000
@@ -29,6 +30,7 @@ data = root / 'data'
 data_in = data / 'in'
 data_out = data / 'out'
 csv = data_out / 'csv'
+estimation = data_out / 'estimation'
 temp = data / 'temp'
 
 # %%
@@ -46,6 +48,9 @@ posts = posts.reset_index()
 # Since I scrape the 7 most recent posts up to one week ago, I may scrape some posts
 # multiple times
 posts = posts.drop_duplicates(subset = 'shortcode', keep = 'first')
+
+# %%
+len(posts)
 
 # %%
 # Make sure there are no NaN values when I convert these columns to lists later
@@ -96,6 +101,19 @@ posts['caption_hashtags_sponsored'] = [[h for h in tags if classify_sponsored_wo
 # Whether the post is sponsored (boolean)
 posts['sponsored'] = posts.apply(lambda p: len(p['caption_hashtags_sponsored']) > 0 or p['paid_partnership'], axis = 1)
 
+# %%
+len(posts)
+
+# %%
+# Drop posts that hide likes count
+posts = posts[posts['likes_num'] >= 0]
+len(posts)
+
+# %%
+# Calculate a measure of engagement
+posts['engagement'] = (posts['likes_num'] + posts['comments_num']) / posts['followers_num']
+posts[['likes_num', 'comments_num', 'followers_num', 'engagement']]
+
 
 # %%
 # Convert date column from str to datetime object
@@ -115,7 +133,7 @@ posts['date'] = posts['date'].apply(parse_date)
 
 # %%
 # Sort chronologically
-posts = posts.sort_values(by = 'date')
+posts = posts.sort_values(by = ['date', 'profile_username'])
 
 # %%
 # Drop posts without a date
@@ -126,5 +144,110 @@ posts = posts[posts['date'].notnull()]
 cutoff = datetime(2022, 7, 1)
 posts = posts[posts['date'] >= cutoff]
 posts['date']
+
+# %%
+posts
+
+# %%
+# Set index to date
+posts = posts.set_index('date')
+
+# %%
+posts.columns
+
+# %%
+# Convert sponsored from boolean to 0 or 1
+posts['sponsored'] = posts['sponsored'].apply(lambda s: int(s))
+
+# %%
+# Keep the columns I need
+posts = posts[['profile_username', 'likes_num', 'comments_num', 'followers_num', 'engagement', 'sponsored']]
+
+# %%
+# 
+posts['engagement_sponsored'] = posts.apply(lambda p: np.nan if p['sponsored'] == 0 else p['engagement'], axis = 1)
+posts['engagement_not_sponsored'] = posts.apply(lambda p: np.nan if p['sponsored'] == 1 else p['engagement'], axis = 1)
+posts
+
+# %%
+# Convert to influencer-week data
+# Note: including count as one of the aggregation methods for likes_num
+# is just a way to count the number of posts for a given influencer in a given week
+agg_methods = {'likes_num': ['mean', 'count'],
+               'comments_num': 'mean',
+               'followers_num': 'mean',
+               'engagement': 'mean',
+               'sponsored': 'sum',
+               'engagement_sponsored': 'mean',
+               'engagement_not_sponsored': 'mean'}
+posts_panel = posts.groupby('profile_username').resample('W').agg(agg_methods)
+posts_panel
+
+# %%
+posts_panel.columns = posts_panel.columns.map('_'.join)
+posts_panel = posts_panel.reset_index()
+posts_panel = posts_panel.rename(columns = {'date': 'week',
+                                            'likes_num_mean': 'likes',
+                                            'likes_num_count': 'posts',
+                                            'comments_num_mean': 'comments',
+                                            'followers_num_mean': 'followers',
+                                            'engagement_mean': 'engagement',
+                                            'sponsored_sum': 'sponsored_posts',
+                                            'engagement_sponsored_mean': 'engagement_sponsored',
+                                            'engagement_not_sponsored_mean': 'engagement_not_sponsored'})
+posts_panel['fraction_sponsored'] = posts_panel['sponsored_posts'] / posts_panel['posts']
+
+# %%
+# Prepare a dataframe for the regression used to estimate the transition function
+posts_transition = posts_panel[['week', 'followers', 'engagement', 'fraction_sponsored']].copy()
+posts_transition['followers_next_period'] = posts_panel['followers'].shift(-1)
+mask = posts_panel['profile_username'] != posts_panel['profile_username'].shift(-1)
+posts_transition['followers_next_period'][mask] = np.nan
+
+posts_transition = posts_transition.dropna()
+
+# %%
+posts_transition
+
+# %%
+posts_transition['log_frac_spon'] = posts_transition['fraction_sponsored'].apply(lambda s: np.log(s) if s > 0 else 0)
+posts_transition['log_engagement'] = np.log(posts_transition['engagement'])
+posts_transition['log_followers_next'] = np.log(posts_transition['followers_next_period'])
+posts_transition = posts_transition[['log_followers_next', 'log_frac_spon', 'log_engagement']]
+
+# %%
+posts_transition
+
+# %%
+posts_transition.to_csv(estimation / 'transition_estimation_data.csv', index = False)
+
+# %%
+# Average across influencers, to show descriptive statistics
+posts_influencer_avg = posts_panel.groupby('week').mean()
+posts_influencer_avg = posts_influencer_avg.reset_index()
+posts_influencer_avg
+
+# %%
+# Show data from August onwards
+august = datetime(2022, 7, 31)
+posts_influencer_avg = posts_influencer_avg[posts_influencer_avg['week'] >= august]
+
+# %%
+posts_influencer_avg.plot(x = 'week', y = 'posts')
+
+# %%
+posts_influencer_avg.plot(x = 'week', y = 'followers')
+
+# %%
+posts_influencer_avg.plot(x = 'week', y = 'engagement')
+
+# %%
+posts_influencer_avg.plot(x = 'week', y = 'sponsored_posts')
+
+# %%
+posts_influencer_avg.plot(x = 'week', y = ['engagement_sponsored', 'engagement_not_sponsored'])
+
+# %%
+posts_influencer_avg.plot(x = 'week', y = 'fraction_sponsored')
 
 # %%
