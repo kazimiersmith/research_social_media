@@ -4,6 +4,6 @@ reg_data <- paste0(out, '/estimation')
 
 df_ig = read.csv(paste0(reg_data, '/transition_estimation_data.csv'))
 
-model <- lm(log_followers_next ~ log_frac_spon + log_engagement, data = df_ig)
+model <- lm(change_log_followers ~ log_frac_spon + log_engagement, data = df_ig)
 
 model
