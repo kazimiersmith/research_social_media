@@ -112,8 +112,10 @@ len(posts)
 # %%
 # Calculate a measure of engagement
 posts['engagement'] = (posts['likes_num'] + posts['comments_num']) / posts['followers_num']
-posts[['likes_num', 'comments_num', 'followers_num', 'engagement']]
+#posts[['likes_num', 'comments_num', 'followers_num', 'engagement']]
 
+# %%
+#posts.sort_values(by = 'followers_num', ascending = False)
 
 # %%
 # Convert date column from str to datetime object
@@ -143,17 +145,17 @@ posts = posts[posts['date'].notnull()]
 # Drop everything before July 1, 2022 (there are a few posts before that, but not many)
 cutoff = datetime(2022, 7, 1)
 posts = posts[posts['date'] >= cutoff]
-posts['date']
+#posts['date']
 
 # %%
-posts
+len(posts)
 
 # %%
 # Set index to date
 posts = posts.set_index('date')
 
 # %%
-posts.columns
+#posts.columns
 
 # %%
 # Convert sponsored from boolean to 0 or 1
@@ -167,7 +169,7 @@ posts = posts[['profile_username', 'likes_num', 'comments_num', 'followers_num',
 # 
 posts['engagement_sponsored'] = posts.apply(lambda p: np.nan if p['sponsored'] == 0 else p['engagement'], axis = 1)
 posts['engagement_not_sponsored'] = posts.apply(lambda p: np.nan if p['sponsored'] == 1 else p['engagement'], axis = 1)
-posts
+#posts
 
 # %%
 # Convert to influencer-week data
@@ -181,11 +183,23 @@ agg_methods = {'likes_num': ['mean', 'count'],
                'engagement_sponsored': 'mean',
                'engagement_not_sponsored': 'mean'}
 posts_panel = posts.groupby('profile_username').resample('W').agg(agg_methods)
-posts_panel
+#posts_panel
+
+# %%
+posts_panel['followers_next_period'] = posts_panel.groupby('profile_username').shift(-1)['followers_num']
+
+# %%
+#posts_panel
+
+# %%
+posts_panel.columns
 
 # %%
 posts_panel.columns = posts_panel.columns.map('_'.join)
 posts_panel = posts_panel.reset_index()
+#posts_panel
+
+# %%
 posts_panel = posts_panel.rename(columns = {'date': 'week',
                                             'likes_num_mean': 'likes',
                                             'likes_num_count': 'posts',
@@ -194,32 +208,30 @@ posts_panel = posts_panel.rename(columns = {'date': 'week',
                                             'engagement_mean': 'engagement',
                                             'sponsored_sum': 'sponsored_posts',
                                             'engagement_sponsored_mean': 'engagement_sponsored',
-                                            'engagement_not_sponsored_mean': 'engagement_not_sponsored'})
+                                            'engagement_not_sponsored_mean': 'engagement_not_sponsored',
+                                            'followers_next_period_': 'followers_next_period'})
 posts_panel['fraction_sponsored'] = posts_panel['sponsored_posts'] / posts_panel['posts']
+posts_panel['change_followers'] = posts_panel['followers_next_period'] - posts_panel['followers']
+
+# %%
+posts_panel.to_csv(estimation / 'posts_panel.csv', index = False)
 
 # %%
 # Prepare a dataframe for the regression used to estimate the transition function
-posts_transition = posts_panel[['week', 'followers', 'engagement', 'fraction_sponsored']].copy()
-posts_transition['followers_next_period'] = posts_panel['followers'].shift(-1)
-mask = posts_panel['profile_username'] != posts_panel['profile_username'].shift(-1)
-posts_transition['followers_next_period'][mask] = np.nan
-
-posts_transition = posts_transition.dropna()
-
-# %%
-posts_transition
-
-# %%
+posts_transition = posts_panel[['week', 'posts', 'followers', 'followers_next_period', 'engagement', 'fraction_sponsored']].copy()
+posts_transition['log_posts'] = np.log(posts_transition['posts'])
 posts_transition['log_frac_spon'] = posts_transition['fraction_sponsored'].apply(lambda s: np.log(s) if s > 0 else 0)
 posts_transition['log_engagement'] = np.log(posts_transition['engagement'])
+posts_transition['log_followers'] = np.log(posts_transition['followers'])
 posts_transition['log_followers_next'] = np.log(posts_transition['followers_next_period'])
-posts_transition = posts_transition[['log_followers_next', 'log_frac_spon', 'log_engagement']]
+posts_transition['change_log_followers'] = posts_transition['followers_next_period'] - posts_transition['followers']
+posts_transition = posts_transition[['change_log_followers', 'log_posts', 'log_frac_spon', 'log_engagement']]
 
 # %%
 posts_transition
 
 # %%
-posts_transition.to_csv(estimation / 'transition_estimation_data.csv', index = False)
+posts_transition.dropna().to_csv(estimation / 'transition_estimation_data.csv', index = False)
 
 # %%
 # Average across influencers, to show descriptive statistics
