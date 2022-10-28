@@ -84,6 +84,10 @@ influencer_list = influencer_list_full[(influencer_list_full['num_followers'] > 
 #influencer_list = influencer_list_full['username']
 
 # %%
+influencer_list
+
+
+# %%
 # Influencer is the user's Instagram username
 # from_date is the date at which to start scraping
 # to_date is the date at which to stop scraping
@@ -122,7 +126,7 @@ def user_to_json(influencer, from_date, to_date, num_posts):
 
 # %%
 for influencer in influencer_list:
-    user_to_json(influencer, None, today - week, 7)
+    user_to_json(influencer, None, today - week, 1)
 
 
 # %%
