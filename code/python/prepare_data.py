@@ -168,14 +168,17 @@ posts = posts.set_index('date')
 posts['sponsored'] = posts['sponsored'].apply(lambda s: int(s))
 
 # %%
-# Keep the columns I need
-posts = posts[['profile_username', 'likes_num', 'comments_num', 'followers_num', 'engagement', 'sponsored']]
-
-# %%
-# 
+# Engagement on sponsored and non-sponsored posts
 posts['engagement_sponsored'] = posts.apply(lambda p: np.nan if p['sponsored'] == 0 else p['engagement'], axis = 1)
 posts['engagement_not_sponsored'] = posts.apply(lambda p: np.nan if p['sponsored'] == 1 else p['engagement'], axis = 1)
 #posts
+
+# %%
+# Branded posts: for now, any post that tags another account
+posts['branded'] = posts.apply(lambda p: 1 if len(p['caption_mention']) > 0 else 0, axis = 1)
+
+# %%
+posts.to_csv(estimation / 'posts_all.csv', index = False)
 
 # %%
 # Convert to influencer-week data
