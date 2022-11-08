@@ -17,12 +17,59 @@
 import pandas as pd
 from pathlib import Path
 import matplotlib.pyplot as plt
+import numpy as np
 pd.options.display.max_rows = 500
 
 # %%
 root = Path('C:/Users/kas1112/Documents/research_social_media')
 estimation = root / 'data' / 'out' / 'estimation'
 fig = root / 'fig'
+
+# %%
+posts = pd.read_csv(estimation / 'posts_all.csv')
+
+
+# %%
+# Categorize posts as organic, sponsored disclosed, or branded undisclosed
+def classify_post(p):
+    if p['sponsored'] == 1:
+        return 'sponsored_disclosed'
+    elif p['branded_undisclosed'] == 1:
+        return 'branded_undisclosed'
+    else:
+        return 'organic'
+    
+posts['post_type'] = posts.apply(classify_post, axis = 1)
+posts.groupby('post_type')[['followers_num', 'likes_num', 'comments_num', 'engagement']].mean()
+
+# %%
+posts.groupby('post_type')[['followers_num', 'likes_num', 'comments_num', 'engagement']].count()
+
+
+# %%
+# Create bins for summary stats by number of followers
+def bin_posts_followers(p):
+    if p['followers_num'] < 50000:
+        return 'Less than 50,000'
+    elif 50000 <= p['followers_num'] < 100000:
+        return '50,000-100,000'
+    elif 100000 <= p['followers_num'] < 200000:
+        return '100,000-200,000'
+    elif 200000 <= p['followers_num'] < 300000:
+        return '200,000-300,000'
+    elif 300000 <= p['followers_num'] < 400000:
+        return '300,000-400,000'
+    elif 400000 <= p['followers_num']:
+        return 'More than 400,000'
+    
+posts['followers_bin'] = posts.apply(bin_posts_followers, axis = 1)
+posts.groupby('followers_bin')[['sponsored', 'branded_undisclosed', 'organic']].sum()
+
+# %%
+posts.groupby('followers_bin')['profile_username'].nunique()
+
+# %%
+posts.groupby('followers_bin')[['likes_num', 'comments_num', 'engagement']].mean()
 
 # %%
 posts_panel = pd.read_csv(estimation / 'posts_panel.csv')
