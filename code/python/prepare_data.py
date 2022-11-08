@@ -178,6 +178,16 @@ posts['engagement_not_sponsored'] = posts.apply(lambda p: np.nan if p['sponsored
 posts['branded'] = posts.apply(lambda p: 1 if len(p['caption_mention']) > 0 else 0, axis = 1)
 
 # %%
+# Branded posts that don't disclose sponsorship
+posts['branded_undisclosed'] = posts.apply(lambda p: 1 if (p['branded'] == 1 and p['sponsored'] == 0) else 0, axis = 1)
+
+# %%
+posts['organic'] = posts.apply(lambda p: 1 if (p['branded'] == 0 and p['sponsored'] == 0) else 0, axis = 1)
+
+# %%
+posts[['branded', 'sponsored', 'branded_undisclosed', 'organic']]
+
+# %%
 posts.to_csv(estimation / 'posts_all.csv', index = False)
 
 # %%
