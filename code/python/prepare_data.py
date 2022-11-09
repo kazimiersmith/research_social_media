@@ -199,6 +199,8 @@ agg_methods = {'likes_num': ['mean', 'count'],
                'followers_num': 'mean',
                'engagement': 'mean',
                'sponsored': 'sum',
+               'organic': 'sum',
+               'branded_undisclosed': 'sum',
                'engagement_sponsored': 'mean',
                'engagement_not_sponsored': 'mean'}
 posts_panel = posts.groupby('profile_username').resample('W').agg(agg_methods)
@@ -229,6 +231,8 @@ posts_panel = posts_panel.rename(columns = {'date': 'week',
                                             'followers_num_mean': 'followers',
                                             'engagement_mean': 'engagement',
                                             'sponsored_sum': 'sponsored_posts',
+                                            'organic_sum': 'organic_posts',
+                                            'branded_undisclosed_sum': 'branded_posts',
                                             'engagement_sponsored_mean': 'engagement_sponsored',
                                             'engagement_not_sponsored_mean': 'engagement_not_sponsored',
                                             'followers_next_period_': 'followers_next_period'})
