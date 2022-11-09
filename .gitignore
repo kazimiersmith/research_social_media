@@ -1,9 +1,2 @@
 .ipynb_checkpoints
 *.ipynb
-data
-fig
-lit
-*.png
-*.txt
-*.pdf
-*.docx
