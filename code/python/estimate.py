@@ -28,7 +28,7 @@ pd.options.display.max_rows = 500
 np.set_printoptions(threshold = 100000)
 
 # %%
-root = Path('C:/Users/kas1112/Documents/research_social_media')
+root = Path('C:/Users/kas1112/Dropbox/my_research_social_media')
 estimation = root / 'data' / 'out' / 'estimation'
 
 # %%
@@ -54,6 +54,12 @@ num_bins = 20
 # For now a period is a week.
 max_posts = 7
 
+# Degree of Chebyshev polynomial for value function approximation. Should be >= num_grid_points
+chebyshev_degree = 20
+
+# Number of grid points to use for value function approximation
+num_grid_points = chebyshev_degree + 1
+
 # %%
 posts_panel = pd.read_csv(estimation / 'posts_panel.csv')
 
@@ -63,61 +69,49 @@ min_followers = posts_panel['followers'].min()
 max_followers = posts_panel['followers'].max()
 
 # %%
-# Label the bins with numbers rather than values corresponding to the actual values in the bin
-bins = np.linspace(min_followers, max_followers, num = num_bins)
-bins
+# Grid points suggested in RMT 4th edition, citing Judd (1996, 1998)
+chebyshev_zeros = np.array([np.cos((2 * k - 1) / (2 * num_grid_points) * np.pi) for k in range(1, num_grid_points + 1)])
 
 
 # %%
-def assign_bin(x):
-    for i, b in enumerate(bins):
-        if i < num_bins - 1:
-            if b <= x < bins[i + 1]:
-                return i
-        else:
-            if b <= x:
-                return i
-    return np.nan
+# Scale Chebyshev zeros to obtain grid points (Chebyshev zeros are in [-1, 1])
+# r_min: lower bound of starting interval
+# r_max: upper bound of starting interval
+# t_min: lower bound of target interval
+# t_max: upper bound of target interval
+#: m: number to scale
+def scale(r_min, r_max, t_min, t_max, m):
+    return (m - r_min) / (r_max - r_min) * (t_max - t_min) + t_min
 
-posts_panel['followers_binned'] = posts_panel['followers'].apply(assign_bin)
-posts_panel['followers_next_binned'] = posts_panel['followers_next_period'].apply(assign_bin)
-posts_panel = posts_panel.dropna(axis = 0, subset = 'followers_binned')
-posts_panel = posts_panel.dropna(axis = 0, subset = 'followers_next_binned')
+grid_points = np.array([scale(-1, 1, min_followers, max_followers, z) for z in chebyshev_zeros])
+grid_points
 
 # %%
-transition = []
-for f in range(num_bins):
-    # Observations where number of followers (binned) is f
-    df_f = posts_panel[posts_panel['followers_binned'] == f]
-    
-    # Get frequencies of each value of next period followers; normalize = True makes them probabilities
-    transition_probs_nonzero = df_f.value_counts(subset = 'followers_next_binned', normalize = True)
-    
-    transition_probs = np.zeros(num_bins)
-    for b, prob in transition_probs_nonzero.iteritems():
-        transition_probs[int(b)] = prob
-        
-    #print(transition_probs)
-    
-    # Check whether all transition probabilities are zero
-    if not np.any(transition_probs):
-        transition_probs[int(f)] = 1
-        
-    transition.append(transition_probs)
-    
-# Transition matrix
-transition = np.array(transition)
-transition
+# Chebyshev coefficients. These define the value function completely.
+# Choose zero as the initial value for all coefficients.
+chebyshev_coefficients = np.zeros(chebyshev_degree + 1)
 
 
 # %%
 # Influencer's utility
-def utility(followers, posts, sponsored_posts, **kwargs):
+def utility(followers, sponsored_posts, total_posts, **kwargs):
     alpha = kwargs.get('alpha', initial_alpha)
     theta1 = kwargs.get('theta1', initial_theta1)
     theta2 = kwargs.get('theta2', initial_theta2)
     
-    return alpha * sponsored_posts * followers + theta1 * posts + theta2 * posts * posts
+    return alpha * sponsored_posts * followers - theta1 * total_posts - theta2 * total_posts ** 2
+
+
+# %%
+# Given parameters, iterate on the value function approximation algorithm (RMT 4th ed.)
+def iterate_approximation(**kwargs):
+    alpha = kwargs.get('alpha', initial_alpha)
+    theta1 = kwargs.get('theta1', initial_theta1)
+    theta2 = kwargs.get('theta2', initial_theta2)
+    
+    # Calculate the value function at each grid point
+    for g in grid_points:
+        
 
 
 # %%
