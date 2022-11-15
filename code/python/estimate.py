@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 from scipy.optimize import NonlinearConstraint
-from sklearn.linear_model import LogisticRegression
+from scipy import stats
 import matplotlib.pyplot as plt
 from pathlib import Path
 from itertools import product
@@ -32,12 +32,15 @@ root = Path('C:/Users/kas1112/Dropbox/my_research_social_media')
 estimation = root / 'data' / 'out' / 'estimation'
 
 # %%
-default_discount_factor = 0.9
+discount_factor = 0.9
 
-# Transition function intercept and coefficients, estimated via OLS
-constant = 12.31954
-gamma_sponsored = -0.12789
-gamma_engagement = 0.08518
+carrying_capacity = 3500000
+
+# Coefficients in follower growth equation
+beta_0 = 1
+beta_sponsored = -0.5
+beta_organic = 1
+beta_engagement = 1
 
 # Initial guess for sponsored post revenue
 initial_alpha = 0.01
@@ -59,6 +62,13 @@ chebyshev_degree = 20
 
 # Number of grid points to use for value function approximation
 num_grid_points = chebyshev_degree + 1
+
+# Number of samples to use for Monte Carlo integration
+monte_carlo_samples = 20
+
+# Assume the error term in the follower growth equation is normally distributed with the following mean and stanard deviation:
+follower_error_mean = 0
+follower_error_std_dev = 100
 
 # %%
 posts_panel = pd.read_csv(estimation / 'posts_panel.csv')
@@ -94,12 +104,57 @@ chebyshev_coefficients = np.zeros(chebyshev_degree + 1)
 
 # %%
 # Influencer's utility
-def utility(followers, sponsored_posts, total_posts, **kwargs):
+# No branded posts for now
+def utility(followers, sponsored_posts, organic_posts, **kwargs):
     alpha = kwargs.get('alpha', initial_alpha)
     theta1 = kwargs.get('theta1', initial_theta1)
     theta2 = kwargs.get('theta2', initial_theta2)
     
+    total_posts = sponsored_posts + organic_posts
+    
     return alpha * sponsored_posts * followers - theta1 * total_posts - theta2 * total_posts ** 2
+
+
+# %%
+[5] * 4
+
+
+# %%
+# Calculate the mean of the distribution of the number of followers next period
+def followers_next_mean(followers, sponsored_posts, organic_posts, engagement):
+    cap_term = followers * (1 - followers / carrying_capacity)
+    
+    mean = followers
+    mean += beta_0 * cap_term
+    mean += beta_organic * organic_posts * cap_term
+    mean += beta_sponsored * sponsored_posts * cap_term
+    mean += beta_engagement * engagement * cap_term
+    
+    return mean
+
+
+# %%
+def integrate_monte_carlo(g, num_samples, mean, std_dev):
+    draws = stats.norm.rvs(loc = mean, scale = std_dev, size = num_samples)
+    return np.sum(g(draws)) / num_samples
+
+
+# %%
+# The expression to maximize in the value function
+def value_function_objective(followers, sponsored_posts, organic_posts, engagement, chebyshev_coefficients, **kwargs):
+    alpha = kwargs.get('alpha', initial_alpha)
+    theta1 = kwargs.get('theta1', initial_theta1)
+    theta2 = kwargs.get('theta2', initial_theta2)
+    
+    # Evaluate a Chebyshev series with the given coefficients
+    def cheb_eval(x):
+        return np.polynomial.chebyshev.chebval(x, chebyshev_coefficients)
+    
+    # Discounted expected value of the value function next period
+    mean = followers_next_mean(followers, sponsored_posts, organic_posts, engagement)
+    discounted_EV = discount_factor * integrate_monte_carlo(cheb_eval, monte_carlo_samples, mean, follower_error_std_dev)
+    
+    return utility(followers, sponsored_posts, organic_posts, alpha = alpha, theta1 = theta1, theta2 = theta2) + discounted_EV
 
 
 # %%
