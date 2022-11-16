@@ -70,6 +70,9 @@ monte_carlo_samples = 20
 follower_error_mean = 0
 follower_error_std_dev = 100
 
+# Tolerance when iterating value function
+epsilon_tol = 0.000001
+
 # %%
 posts_panel = pd.read_csv(estimation / 'posts_panel.csv')
 
@@ -116,10 +119,6 @@ def utility(followers, sponsored_posts, organic_posts, **kwargs):
 
 
 # %%
-[5] * 4
-
-
-# %%
 # Calculate the mean of the distribution of the number of followers next period
 def followers_next_mean(followers, sponsored_posts, organic_posts, engagement):
     cap_term = followers * (1 - followers / carrying_capacity)
@@ -141,10 +140,13 @@ def integrate_monte_carlo(g, num_samples, mean, std_dev):
 
 # %%
 # The expression to maximize in the value function
-def value_function_objective(followers, sponsored_posts, organic_posts, engagement, chebyshev_coefficients, **kwargs):
+def value_function_objective(choice_vars, followers, engagement, chebyshev_coefficients, **kwargs):
     alpha = kwargs.get('alpha', initial_alpha)
     theta1 = kwargs.get('theta1', initial_theta1)
     theta2 = kwargs.get('theta2', initial_theta2)
+    
+    sponsored_posts = choice_vars[0]
+    organic_posts = choice_vars[1]
     
     # Evaluate a Chebyshev series with the given coefficients
     def cheb_eval(x):
@@ -159,13 +161,20 @@ def value_function_objective(followers, sponsored_posts, organic_posts, engageme
 
 # %%
 # Given parameters, iterate on the value function approximation algorithm (RMT 4th ed.)
-def iterate_approximation(**kwargs):
+def iterate_approximation(initial_chebyshev_coefficients, **kwargs):
     alpha = kwargs.get('alpha', initial_alpha)
     theta1 = kwargs.get('theta1', initial_theta1)
     theta2 = kwargs.get('theta2', initial_theta2)
     
-    # Calculate the value function at each grid point
-    for g in grid_points:
+    values = []
+    chebyshev_coefficients = initial_chebyshev_coefficients
+    epsilon = 1000000
+    while epsilon > epsilon_tol:
+        # Calculate value function at each grid point
+        for g in grid_points:
+            values.append(minimize(-value_function_objective, [1, 5], args = (g, engagement, chebyshev_coefficients)))
+            
+        # Calculate new Chebyshev coefficients
         
 
 
