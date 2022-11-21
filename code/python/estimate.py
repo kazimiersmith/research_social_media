@@ -23,6 +23,8 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from itertools import product
 from scipy.special import logsumexp
+from scipy.special import eval_chebyt
+import matplotlib.pyplot as plt
 
 pd.options.display.max_rows = 500
 np.set_printoptions(threshold = 100000)
@@ -37,13 +39,13 @@ discount_factor = 0.9
 carrying_capacity = 3500000
 
 # Coefficients in follower growth equation
-beta_0 = 1
-beta_sponsored = -0.5
-beta_organic = 1
-beta_engagement = 1
+beta_0 = 0.0001
+beta_sponsored = -0.00005
+beta_organic = 0.0001
+beta_engagement = 0.0001
 
 # Initial guess for sponsored post revenue
-initial_alpha = 0.01
+initial_alpha = 0.5
 
 # Initial guess for cost function coefficients:
 # c(p) = theta_1 * p + theta_2 * p^2
@@ -58,17 +60,17 @@ num_bins = 20
 max_posts = 7
 
 # Degree of Chebyshev polynomial for value function approximation. Should be >= num_grid_points
-chebyshev_degree = 20
+chebyshev_degree = 5
 
 # Number of grid points to use for value function approximation
-num_grid_points = chebyshev_degree + 1
+num_grid_points = 20
 
 # Number of samples to use for Monte Carlo integration
-monte_carlo_samples = 20
+monte_carlo_samples = 200000
 
 # Assume the error term in the follower growth equation is normally distributed with the following mean and stanard deviation:
 follower_error_mean = 0
-follower_error_std_dev = 100
+follower_error_std_dev = 10
 
 # Tolerance when iterating value function
 epsilon_tol = 0.000001
@@ -102,7 +104,7 @@ grid_points
 # %%
 # Chebyshev coefficients. These define the value function completely.
 # Choose zero as the initial value for all coefficients.
-chebyshev_coefficients = np.zeros(chebyshev_degree + 1)
+initial_chebyshev_coefficients = np.zeros(chebyshev_degree + 1)
 
 
 # %%
@@ -123,6 +125,8 @@ def utility(followers, sponsored_posts, organic_posts, **kwargs):
 def followers_next_mean(followers, sponsored_posts, organic_posts, engagement):
     cap_term = followers * (1 - followers / carrying_capacity)
     
+    #print('cap_term=', str(cap_term))
+    
     mean = followers
     mean += beta_0 * cap_term
     mean += beta_organic * organic_posts * cap_term
@@ -135,6 +139,8 @@ def followers_next_mean(followers, sponsored_posts, organic_posts, engagement):
 # %%
 def integrate_monte_carlo(g, num_samples, mean, std_dev):
     draws = stats.norm.rvs(loc = mean, scale = std_dev, size = num_samples)
+    #print(draws)
+    #print(g(draws))
     return np.sum(g(draws)) / num_samples
 
 
@@ -154,9 +160,32 @@ def value_function_objective(choice_vars, followers, engagement, chebyshev_coeff
     
     # Discounted expected value of the value function next period
     mean = followers_next_mean(followers, sponsored_posts, organic_posts, engagement)
-    discounted_EV = discount_factor * integrate_monte_carlo(cheb_eval, monte_carlo_samples, mean, follower_error_std_dev)
-    
-    return utility(followers, sponsored_posts, organic_posts, alpha = alpha, theta1 = theta1, theta2 = theta2) + discounted_EV
+    print('Mean =', mean)
+    # print('Followers =', followers)
+    # print('Sponsored posts =', sponsored_posts)
+    # print('Organic posts =', organic_posts)
+    EV = integrate_monte_carlo(cheb_eval, monte_carlo_samples, mean, follower_error_std_dev)
+    discounted_EV = discount_factor * EV
+    #print('Discounted EV', str(discounted_EV))
+   
+    # Minimize the negative
+    return -utility(followers, sponsored_posts, organic_posts, alpha = alpha, theta1 = theta1, theta2 = theta2) - discounted_EV
+
+
+# %%
+initial_alpha = 0.0001
+beta_0 = 0.001
+beta_sponsored = -100000
+beta_organic = 0.001
+beta_engagement = 0.001
+spon = np.linspace(0, 45000, 100)
+vf = [-value_function_objective([s, 7], 200000, 0.001, [0.09, 0.04, 0.03, 0.02, 0.01]) for s in spon]
+plt.plot(spon, vf)
+
+# %%
+org = np.linspace(0, 100, 100)
+vf = [-value_function_objective([2, o], 200000, 0.001, [0.09, 0.04, 0.03, 0.02, 0.01]) for o in org]
+plt.plot(spon, vf)
 
 
 # %%
@@ -165,132 +194,48 @@ def iterate_approximation(initial_chebyshev_coefficients, **kwargs):
     alpha = kwargs.get('alpha', initial_alpha)
     theta1 = kwargs.get('theta1', initial_theta1)
     theta2 = kwargs.get('theta2', initial_theta2)
-    
-    values = []
+   
+    # Initial Chebyshev coefficients
     chebyshev_coefficients = initial_chebyshev_coefficients
+    
+    # Values of the jth Chebyshev polynomial T_j at each grid point
+    chebvals = np.array([[eval_chebyt(j, g) for g in grid_points] for j in range(chebyshev_degree + 1)])
+        
+    # Denominator when calculating least-squares Chebyshev coefficients    
+    denominators = np.array([np.dot(chebvals[j], chebvals[j]) for j in range(chebyshev_degree + 1)])
+    
     epsilon = 1000000
     while epsilon > epsilon_tol:
+        print('Epsilon =', epsilon)
         # Calculate value function at each grid point
+        values = []
+        results = []
         for g in grid_points:
-            values.append(minimize(-value_function_objective, [1, 5], args = (g, engagement, chebyshev_coefficients)))
+            minimize_result = minimize(value_function_objective, [1, 5],
+                                       args = (g, 0.01, chebyshev_coefficients),
+                                       bounds = [(0, None), (0, None)])
+                                       
+            #print('Value function maximized at', minimize_result['x'])
+            #print('Max value =', -minimize_result['fun'])
+            results.append(minimize_result)
+            values.append(-minimize_result['fun'])
             
+        print('VF at grid points:', results)    
         # Calculate new Chebyshev coefficients
+        numerators = np.array([np.dot(values, chebvals[j]) for j in range(chebyshev_degree + 1)])
+        chebyshev_coefficients_new = numerators / denominators
+        #print('cheb coeffs new:', chebyshev_coefficients_new)
         
+        vf_old = np.array([np.polynomial.chebyshev.chebval(g, chebyshev_coefficients) for g in grid_points])
+        vf_new = np.array([np.polynomial.chebyshev.chebval(g, chebyshev_coefficients_new) for g in grid_points])
+        # print('vf_old =', vf_old)
+        # print('vf_new =', vf_new)
+        # print(np.abs(vf_old - vf_new))
+        chebyshev_coefficients = chebyshev_coefficients_new
+        epsilon = np.linalg.norm(vf_old - vf_new)
 
 
 # %%
-# One iteration of the Bellman operator.
-def bellman_iteration(**kwargs):
-    # Previous value of the expected value function; this should be a vector of length num_bins
-    # where each element is the expected value function evaluated at that bin (i.e. number of followers)
-    prev_ev = kwargs.get('prev_ev', np.zeros((num_bins, max_posts + 1, max_posts + 1)))
-    
-    beta = kwargs.get('beta', default_discount_factor)
-    alpha = kwargs.get('alpha', initial_alpha)
-    theta1 = kwargs.get('theta1', initial_theta1)
-    theta2 = kwargs.get('theta2', initial_theta2)
-    
-    new_ev = np.zeros((num_bins, max_posts + 1, max_posts + 1))
-    for followers in range(num_bins):
-        for posts in range(max_posts + 1):
-            for spon in range(posts + 1):
-                # Must have sponsored posts <= posts
-                #print(followers, posts, spon)
-                integral_summands = []
-                for b in range(num_bins):
-                    # f is the number of followers corresponding to bin b
-                    # I use the midpoints of the bins, except for the last point, where I use the left endpoint
-                    if b < num_bins - 1:
-                        f = (bins[b] + bins[b + 1]) / 2
-                    else:
-                        f = bins[b]
-
-                    exp = []
-                    for p in range(max_posts + 1):
-                        for s in range(p + 1):
-                            # Influencer can make s sponsored posts, where 0 <= s <= p
-                            exp.append(utility(f, p, s, alpha = alpha, theta1 = theta1, theta2 = theta2) + beta * prev_ev[b][p][s])
-
-                    integral_summands.append(logsumexp(exp) * transition[followers][b])
-
-                new_ev[followers][posts][spon] = np.sum(integral_summands)
-                         
-    return new_ev
-
+iterate_approximation(initial_chebyshev_coefficients)
 
 # %%
-def iterate_bellman(**kwargs):
-    print('Iterate Bellman')
-    epsilon_tol = 0.000001
-    
-    beta = kwargs.get('beta', default_discount_factor)
-    alpha = kwargs.get('alpha', initial_alpha)
-    theta1 = kwargs.get('theta1', initial_theta1)
-    theta2 = kwargs.get('theta2', initial_theta2)
-    
-    prev_exp_vf = np.zeros((num_bins, max_posts + 1, max_posts + 1))
-    new_exp_vf = bellman_iteration(prev_ev = prev_exp_vf, beta = beta, alpha = alpha, theta1 = theta1, theta2 = theta2)
-    epsilon = np.amax(np.abs(new_exp_vf - prev_exp_vf))
-    while epsilon > epsilon_tol:
-        prev_exp_vf = np.copy(new_exp_vf)
-        new_exp_vf = bellman_iteration(prev_ev = prev_exp_vf, beta = beta, alpha = alpha, theta1 = theta1, theta2 = theta2)
-        epsilon = np.amax(np.abs(new_exp_vf - prev_exp_vf))
-        print('Epsilon = ', epsilon)
-        
-    return np.array(new_exp_vf)
-
-
-# %%
-def get_ccps(exp_vf):
-    print('CCPs')
-    # TODO ignore entries in exp_vf where sponsored posts > posts
-    denominators = np.array([np.full((max_posts + 1, max_posts + 1), np.sum(np.exp(exp_vf[b][:][:]))) for b in range(num_bins)])
-    replace_probs = np.exp(exp_vf) / denominators
-    
-    return replace_probs
-
-
-# %%
-# Params are alpha, theta1, theta2
-def neg_log_likelihood(params):
-    print('Negative log likelihood')
-    exp_vf = iterate_bellman(alpha = params[0], theta1 = params[1], theta2 = params[2])
-    ccps = get_ccps(exp_vf)
-    obs_data = np.array(posts_panel[['followers_binned', 'posts', 'sponsored_posts']]).astype(int)
-    
-    return -np.sum(np.log([ccps[o[0]][o[1]][o[2]] for o in obs_data]))
-
-
-# %%
-# Estimate theta1 and the replacement cost using MLE
-def estimate_mle():
-    print('Estimate MLE')
-    # Minimize the negative log-likelihood, i.e. maximize the log-likelihood
-    return minimize(neg_log_likelihood,
-                    [initial_alpha, initial_theta1, initial_theta2],
-                    method = 'BFGS')
-
-
-# %%
-estimates = estimate_mle()
-
-# %%
-estimates
-
-# %%
-# Utility estimates
-# def get_utility(val_func, **kwargs):
-#     beta = kwargs.get('beta', default_beta)
-#     t0 = kwargs.get('transition0', transition0)
-#     t1 = kwargs.get('transition1', transition1)
-    
-#     # log(exp(v(x, 0)) + exp(v(x, 1)))
-#     vf_logsumexp = np.log(np.exp(val_func[:, 0]) + np.exp(val_func[:, 1])).reshape(-1, 1)
-    
-#     v0 = val_func[:, 0].reshape(-1, 1) - beta * t0 @ vf_logsumexp
-#     v1 = val_func[:, 1].reshape(-1, 1) - beta * t1 @ vf_logsumexp
-    
-#     return np.array([v0.flatten(), v1.flatten()]).T
-
-# # Estimates: theta1 = 688.6650, RC = 146.9811
-# mle_estimates = estimate_mle()
