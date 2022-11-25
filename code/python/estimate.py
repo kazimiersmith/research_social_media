@@ -45,16 +45,16 @@ carrying_capacity = 1
 # Coefficients in follower growth equation
 beta_0 = 1
 beta_sponsored = -1
-beta_organic = 1
+beta_organic = 5
 beta_engagement = 1
 
 # Initial guess for sponsored post revenue
-initial_alpha = 0.015
+initial_alpha = 0.01
 
 # Initial guess for cost function coefficients:
 # c(p) = theta_1 * p + theta_2 * p^2
-initial_theta1 = 0.001
-initial_theta2 = 0.001
+initial_theta1 = 0.0001
+initial_theta2 = 0.0001
 
 # Maximum number of posts in a given period. This defines the influencer's choice set.
 # For now a period is a week.
@@ -71,7 +71,7 @@ follower_error_mean = 0
 follower_error_std_dev = 0.1
 
 # Tolerance when iterating value function
-epsilon_tol = 0.000001
+epsilon_tol = 0.001
 
 # %%
 posts_panel = pd.read_csv(estimation / 'posts_panel.csv')
@@ -84,7 +84,6 @@ max_followers = posts_panel['followers'].max()
 # %%
 # Grid points suggested in RMT 4th edition, citing Judd (1996, 1998)
 grid_points = chebpts1(num_grid_points)
-grid_points
 
 # %%
 # Scale Chebyshev zeros to obtain grid points (Chebyshev zeros are in [-1, 1])
@@ -176,17 +175,6 @@ def value_function_objective(choice_vars, followers, engagement, C, **kwargs):
 
 
 # %%
-# follower_error_std_dev = 0.1
-# spon = np.linspace(0, 7, 100)
-# vf = [-value_function_objective([s, 4], 0.1, 0.001, Chebyshev([0.09, 0.04, 0.03, 0.02, 0.01])) for s in spon]
-# plt.plot(spon, vf)
-
-# %%
-# org = np.linspace(0, 7, 100)
-# vf = [-value_function_objective([3, o], 0.1, 0.001, Chebyshev([0.09, 0.04, 0.03, 0.02, 0.01])) for o in org]
-# plt.plot(spon, vf)
-
-# %%
 # Given parameters, iterate on the value function approximation algorithm (RMT 4th ed.).
 # C_initial is the initial Chebyshev approximation of the value function
 def iterate_approximation(C_initial, **kwargs):
@@ -199,12 +187,12 @@ def iterate_approximation(C_initial, **kwargs):
     
     epsilon = 1000000
     while epsilon > epsilon_tol:
-        print('Epsilon =', epsilon)
+        #print('Epsilon =', epsilon)
         # Calculate value function at each grid point
         values = []
         results = []
         for g in grid_points:
-            minimize_result = minimize(value_function_objective, [1, 5],
+            minimize_result = minimize(value_function_objective, [0, 0],
                                        args = (g, 0.01, C),
                                        bounds = [(0, None), (0, None)])
                                        
@@ -224,7 +212,46 @@ def iterate_approximation(C_initial, **kwargs):
         
         C = C_new
         epsilon = np.linalg.norm(vf_old - vf_new)
+        
+    return C
 
 
 # %%
-iterate_approximation(C_initial)
+C_final = iterate_approximation(C_initial)
+
+# %%
+spon = np.linspace(0, 8, 100)
+vf = [-value_function_objective([s, 3], 0.1, 0.01, C_final) for s in spon]
+plt.plot(spon, vf)
+
+# %%
+org = np.linspace(0, 8, 100)
+vf = [-value_function_objective([0, o], -0.5, 0.01, C_final) for o in org]
+plt.plot(spon, vf)
+
+# %%
+followers = np.linspace(-1, 1, 100)
+vf = C_final(followers)
+plt.plot(followers, vf)
+
+
+# %%
+# Calculate the optimal policy for a given number of followers
+def policy_function(n):
+    minimize_result = minimize(value_function_objective, [0, 0],
+                               args = (n, 0.01, C_final),
+                               bounds = [(0, None), (0, None)])
+    
+    return minimize_result['x']
+
+
+# %%
+optimal_policy = np.array([policy_function(n) for n in followers])
+optimal_sponsored_posts = optimal_policy.T[0]
+optimal_organic_posts = optimal_policy.T[1]
+plt.plot(followers, optimal_sponsored_posts, color = 'blue', label = 'Sponsored')
+plt.plot(followers, optimal_organic_posts, color = 'red', label = 'Organic')
+plt.legend()
+plt.show()
+
+# %%
