@@ -34,7 +34,8 @@ np.set_printoptions(threshold = 100000)
 
 # %%
 #root = Path('C:/Users/kas1112/Dropbox/my_research_social_media')
-root = Path('~/Dropbox/my_research_social_media')
+#root = Path('~/Dropbox/my_research_social_media')
+root = Path('E:/Dropbox/my_research_social_media')
 estimation = root / 'data' / 'out' / 'estimation'
 
 # %%
@@ -43,25 +44,34 @@ discount_factor = 0.9
 carrying_capacity = 1
 
 # Coefficients in follower growth equation
-beta_0 = 0.000001
-beta_sponsored = -0.01
-beta_organic = 0.02
-beta_engagement = 0.00001
+beta_0 = 0.1
+beta_sponsored = -0.1
+beta_organic = 0.3
+beta_engagement = 0.1
 
 # Initial guess for sponsored post revenue
-initial_alpha = 0.01
+initial_alpha = 0.1
+
+# Coefficients in follower growth equation: THESE WORK
+# beta_0 = 0.000001
+# beta_sponsored = -0.01
+# beta_organic = 0.3
+# beta_engagement = 0.00001
+
+# Initial guess for sponsored post revenue: WORKS
+# initial_alpha = 0.1
 
 # Initial guess for cost function coefficients:
 # c(p) = theta_1 * p + theta_2 * p^2
 initial_theta1 = 0.001
-initial_theta2 = 0.000014
+initial_theta2 = 0.0000055
 
 # Maximum number of posts in a given period. This defines the influencer's choice set.
 # For now a period is a week.
 #max_posts = 7
 
 # Degree of Chebyshev polynomial for value function approximation. Should be less than or equal to num_grid_points
-chebyshev_degree = 5
+chebyshev_degree = 2
 
 # Number of grid points to use for value function approximation
 num_grid_points = 20
@@ -84,10 +94,6 @@ posts_panel = pd.read_csv(estimation / 'posts_panel.csv')
 min_followers = posts_panel['followers'].min()
 max_followers = posts_panel['followers'].max()
 
-# %%
-# Grid points suggested in RMT 4th edition, citing Judd (1996, 1998)
-grid_points = chebpts1(num_grid_points)
-
 
 # %%
 # Scale Chebyshev zeros to obtain grid points (Chebyshev zeros are in [-1, 1])
@@ -101,9 +107,17 @@ def scale(r_min, r_max, t_min, t_max, m):
 
 
 # %%
+# Grid points suggested in RMT 4th edition, citing Judd (1996, 1998)
+grid_points = chebpts1(num_grid_points)
+
+# Scale grid points from [-1,1] to [0,1]
+grid_points = np.array([scale(-1, 1, 0, 1, g) for g in grid_points])
+grid_points
+
+# %%
 # Initial Chebyshev series representing the value function
 # Choose zero as the initial value for all coefficients.
-C_initial = Chebyshev(np.zeros(chebyshev_degree + 1))
+C_initial = Chebyshev(np.ones(chebyshev_degree + 1))
 
 
 # %%
@@ -116,7 +130,10 @@ def utility(followers, sponsored_posts, organic_posts, **kwargs):
     
     total_posts = sponsored_posts + organic_posts
     
-    return alpha * sponsored_posts * followers - theta1 * total_posts - theta2 * total_posts ** 2
+    return alpha * sponsored_posts * followers - theta1 * total_posts - theta2 * total_posts ** 4
+    
+    # Cobb-Douglas cost function
+    #return alpha * sponsored_posts * followers - theta1 * sponsored_posts * organic_posts
 
 
 # %%
@@ -136,12 +153,12 @@ def followers_next_mean(followers, sponsored_posts, organic_posts, engagement):
 
 
 # %%
-followers = np.linspace(-1, 1, 100)
+followers = np.linspace(0, 1, 100)
 spon = np.linspace(0, 8, 100)
 org = np.linspace(0, 8, 100)
-mean_f = [followers_next_mean(f, 0.25, 3, default_engagement) for f in followers]
-mean_s = [followers_next_mean(0.1, s, 3, default_engagement) for s in spon]
-mean_o = [followers_next_mean(0.1, 0.25, o, default_engagement) for o in org]
+mean_f = [followers_next_mean(f, 1, 3, default_engagement) for f in followers]
+mean_s = [followers_next_mean(0.05, s, 3, default_engagement) for s in spon]
+mean_o = [followers_next_mean(0.05, 1, o, default_engagement) for o in org]
 
 # %%
 plt.plot(followers, mean_f)
@@ -152,13 +169,18 @@ plt.plot(spon, mean_s)
 # %%
 plt.plot(org, mean_o)
 
-
 # %%
 # def integrate_monte_carlo(g, num_samples, mean, std_dev):
 #     draws = stats.norm.rvs(loc = mean, scale = std_dev, size = num_samples)
 #     #print(draws)
 #     #print(g(draws))
 #     return np.sum(g(draws)) / num_samples
+
+# %%
+xs = np.linspace(0, 1, 100)
+p = [stats.truncnorm.pdf(x, (0 - 0.5) / 0.1, (1 - 0.5) / 0.1, loc = 0.5, scale = 0.1) for x in xs]
+plt.plot(xs, p)
+
 
 # %%
 # The expression to maximize in the value function
@@ -176,22 +198,42 @@ def value_function_objective(choice_vars, followers, engagement, C, **kwargs):
     
     # Discounted expected value of the value function next period
     mean = followers_next_mean(followers, sponsored_posts, organic_posts, engagement)
-    # print('Mean =', mean)
+    #print('Mean =', mean)
+    
+    # xs = np.linspace(0, 1, 100)
+    # p = [stats.truncnorm.pdf(x, (0 - 0.5) / 0.1, (1 - 0.5) / 0.1, loc = 0.5, scale = 0.1) for x in xs]
+    # plt.plot(xs, p)
     
     # Integrand for expected value function
     def integrand(x):
-        return C(x) * stats.norm.pdf(x, loc = mean, scale = follower_error_std_dev)
+        #print('C(x):', C(x))
+        a, b = (0 - mean) / follower_error_std_dev, (1 - mean) / follower_error_std_dev
+        #print('Transition probability:', stats.truncnorm.pdf(x, a, b, loc = mean, scale = follower_error_std_dev))
+        #print(C(x))
+        return C(x) * stats.truncnorm.pdf(x, a, b, loc = mean, scale = follower_error_std_dev)
    
     # Discounted expected value of next period's value function.
-    # Calculations are done with the number of followers in [-1, 1]; it will be scaled later
-    #print(quad(integrand, -1, 1, full_output = 1))
-    discounted_EV = discount_factor * quad(integrand, -1, 1)[0]
+    # Calculations are done with the number of followers in [0, 1]; it will be scaled later
+    #print(quad(integrand, 0, 1)[0])
+    discounted_EV = discount_factor * quad(integrand, 0, 1)[0]
     #print('Discounted EV', str(discounted_EV))
     current_period_util = utility(followers, sponsored_posts, organic_posts, alpha = alpha, theta1 = theta1, theta2 = theta2)
     #print('Current period utility =', str(current_period_util))
    
     # Minimize the negative
     return -current_period_util - discounted_EV
+
+
+# %%
+integrands = []
+f = np.linspace(0, 1, 100)
+#C_initial = Chebyshev([1, 1, 1, 0, 0, 0])
+mean = 0.5
+for x in f:
+    a, b = (0 - mean) / follower_error_std_dev, (1 - mean) / follower_error_std_dev
+    integrands.append(C_initial(x) * stats.truncnorm.pdf(x, a, b, loc = mean, scale = follower_error_std_dev))
+    
+plt.plot(f, integrands)
 
 
 # %%
@@ -207,18 +249,18 @@ def iterate_approximation(C_initial, **kwargs):
     
     epsilon = 1000000
     while epsilon > epsilon_tol:
-        spon = np.linspace(0, 20, 100)
-        org = np.linspace(0, 20, 100)
-        vf_s = [-value_function_objective([s, 3], 0.1, default_engagement, C) for s in spon]
-        vf_o = [-value_function_objective([0.25, o], 0.1, default_engagement, C) for o in org]
+#         spon = np.linspace(0, 20, 100)
+#         org = np.linspace(0, 20, 100)
+#         vf_s = [-value_function_objective([s, 3], 0.05, default_engagement, C) for s in spon]
+#         vf_o = [-value_function_objective([1, o], 0.05, default_engagement, C) for o in org]
         
-        fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (5, 5))
-        ax1.plot(spon, vf_s)
-        ax1.set_title('Sponsored posts')
-        ax2.plot(org ,vf_o)
-        ax2.set_title('Organic posts')
-        fig.tight_layout()
-        plt.show()
+#         fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (5, 5))
+#         ax1.plot(spon, vf_s)
+#         ax1.set_title('Sponsored posts')
+#         ax2.plot(org ,vf_o)
+#         ax2.set_title('Organic posts')
+#         fig.tight_layout()
+#         plt.show()
                  
         # Calculate value function at each grid point
         values = []
@@ -237,7 +279,10 @@ def iterate_approximation(C_initial, **kwargs):
         
         # New Chebyshev approximation is the least squares fit to the value function evaluated
         # at each grid point
-        C_new = C.fit(grid_points, values, deg = chebyshev_degree, domain = [-1, 1])
+        C_new = C.fit(grid_points, values, deg = chebyshev_degree, domain = [0, 1])
+       
+        #print('Grid points:', grid_points)
+        #print('Old C:', C)
         
         vf_old = C(grid_points)
         vf_new = C_new(grid_points)
@@ -266,7 +311,7 @@ vf = [-value_function_objective([0.25, o], 0.1, default_engagement, C_final) for
 plt.plot(spon, vf)
 
 # %%
-followers = np.linspace(-1, 1, 100)
+followers = np.linspace(0, 1, 100)
 vf = C_final(followers)
 plt.plot(followers, vf)
 plt.ylabel('Value of optimal policy')
